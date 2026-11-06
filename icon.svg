@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Two conversations talking">
+  <defs>
+    <linearGradient id="a" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5aa2ff"/>
+      <stop offset="1" stop-color="#2f6bd8"/>
+    </linearGradient>
+    <linearGradient id="b" x1="1" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#8fe0ff"/>
+      <stop offset="1" stop-color="#39b6e6"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="10" width="34" height="24" rx="9" fill="url(#a)"/>
+  <path d="M16 33 L16 42 L26 33 Z" fill="url(#a)"/>
+  <circle cx="16.5" cy="22" r="2.4" fill="#eaf3ff"/>
+  <circle cx="23" cy="22" r="2.4" fill="#eaf3ff"/>
+  <circle cx="29.5" cy="22" r="2.4" fill="#eaf3ff"/>
+  <rect x="24" y="30" width="34" height="24" rx="9" fill="url(#b)"/>
+  <path d="M48 53 L48 62 L38 53 Z" fill="url(#b)"/>
+  <circle cx="34.5" cy="42" r="2.4" fill="#0d3550"/>
+  <circle cx="41" cy="42" r="2.4" fill="#0d3550"/>
+  <circle cx="47.5" cy="42" r="2.4" fill="#0d3550"/>
+</svg>

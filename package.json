@@ -1,0 +1,56 @@
+{
+  "name": "dsh-peer-talk",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Cross-session messaging for DeepSeek Harness: private messages between conversations, a pull-only forum, and a permission tree that decides who may create sessions, cross workspaces, or post.",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "peer-talk",
+    "multi-agent",
+    "forum",
+    "permissions"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fanrena/dsh-peer-talk.git"
+  },
+  "homepage": "https://github.com/fanrena/dsh-peer-talk",
+  "bugs": {
+    "url": "https://github.com/fanrena/dsh-peer-talk/issues"
+  },
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/smoke.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  }
+}

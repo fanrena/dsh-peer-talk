@@ -1,0 +1,13 @@
+# Peer talk: one Host row. The permission switches live in the plugin's own
+# settings document (also editable in Settings → Peer talk), so this row only
+# needs the defaults it should seed a fresh profile with.
+- insert:
+    - id: peer-talk
+      name: dsh-peer-talk
+      config:
+        # ask | allow | deny — may the agent start a new conversation by itself?
+        createSession: ask
+        # auto | ask | off — may the agent send a message without being asked?
+        send: auto
+        maxSendsPerMinute: 8
+        maxMessageChars: 4000

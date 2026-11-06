@@ -1,0 +1,16 @@
+# DSH peer-talk — repository
+
+# Development scaffolding stays local (asar extractors, css helpers, patch scripts).
+_tools/
+
+# Runtime / editor noise
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local state the plugin writes outside the package
+*.tmp
+.probe.txt
