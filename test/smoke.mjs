@@ -38,6 +38,7 @@ const BASE = {
   grants: {},
   names: {},
   humanName: '鹿',
+  receiver: { mode: 'handler', canInterrupt: true, model: null },
   defaultModel: null,
   maxSendsPerMinute: 8,
   maxMessageChars: 4000,
@@ -46,6 +47,10 @@ const BASE = {
 check('capability vocabulary', CAPABILITIES, ['create', 'cross', 'forum'])
 check('mode vocabulary', MODES, ['allow', 'ask', 'deny'])
 check('defaults', resolveSettings({}), BASE)
+check('receiver mode: queue is kept', resolveSettings({ receiver: { mode: 'queue' } }).receiver.mode, 'queue')
+check('receiver mode: unknown falls back to handler', resolveSettings({ receiver: { mode: 'steer' } }).receiver.mode, 'handler')
+check('receiver interrupt: explicit false wins', resolveSettings({ receiver: { canInterrupt: false } }).receiver, { mode: 'handler', canInterrupt: false, model: null })
+check('receiver interrupt: non-boolean is refused', resolveSettings({ receiver: { canInterrupt: 'yes' } }).receiver.canInterrupt, false)
 
 check('defaults are overridable', resolveSettings({ defaults: { create: 'deny' } }).defaults,
   { create: 'deny', cross: 'ask', forum: 'ask' })
