@@ -846,18 +846,27 @@ function buildReceiverPrompt(record, running) {
 }
 
 /**
- * Give one receiver subagent its own tools. They are registered on the child's
- * agent context, so no other conversation sees them and disposal removes them.
- * @param agentCtx - the child agent's scoped context.
- * @param record - the message this receiver owns.
- * @param deps - plugin context and settings store.
+ * The four tools a receiver uses.
+ *
+ * They are registered globally and resolve their receiver record from the
+ * calling agent at execution time, because a child's scoped context does not
+ * exist yet when its first request is assembled: a scoped registration only
+ * shows up from the second step on, and a receiver must be able to answer on
+ * its first one. Outside a receiver every one of them refuses.
+ * @param ctx - the plugin context.
+ * @param store - the settings store.
+ * @param receivers - live receiver records keyed by child session id.
+ * @returns the tool definitions.
  */
-function registerReceiverTools(agentCtx, record, deps) {
-  const { ctx, store } = deps
-  const add = definition => {
-    try {
-      agentCtx.effect(() => agentCtx.tools.register(definition))
-    } catch { /* scoped registration is best effort; the prompt already says what to do */ }
+function receiverToolDefinitions(ctx, store, receivers) {
+  /** The receiver record of the calling agent, or a clear refusal. */
+  const recordOf = exec => {
+    const agentId = exec?.agent?.id
+    const record = agentId === undefined ? undefined : receivers.get(agentId)
+    if (record === undefined) {
+      throw new Error('peer-talk: this tool only works inside a receiver subagent spawned by peer_send; other conversations have no incoming message to handle')
+    }
+    return record
   }
   const controller = () => {
     const service = ctx.get('sessionController')
@@ -865,173 +874,178 @@ function registerReceiverTools(agentCtx, record, deps) {
     return service
   }
 
-  add({
-    name: 'peer_context',
-    description: 'Read what the conversation this receiver serves is doing right now: its recent messages and whether it is running a turn. Read this before deciding to interrupt.',
-    parameters: {
-      type: 'object',
-      properties: { tail: { type: 'number', description: 'How many recent messages to include. Default 8, maximum 30.' } },
-      additionalProperties: false,
+  return [
+    {
+      name: 'peer_context',
+      description: 'Receiver only. Read what the conversation this receiver serves is doing right now: its recent messages and whether it is running a turn. Read this before deciding to interrupt.',
+      parameters: {
+        type: 'object',
+        properties: { tail: { type: 'number', description: 'How many recent messages to include. Default 8, maximum 30.' } },
+        additionalProperties: false,
+      },
+      output: {
+        schema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            running: { type: 'boolean' },
+            messages: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['name', 'running', 'messages'],
+          additionalProperties: false,
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `Conversation "${value.name}" is ${value.running ? 'running' : 'idle'}. Recent messages:\n${value.messages.join('\n') || '(none)'}`,
+        }],
+      },
+      timeoutMs: 10_000,
+      isConcurrencySafe: () => true,
+      async execute(args, exec) {
+        const record = recordOf(exec)
+        const count = typeof args?.tail === 'number' && args.tail > 0 ? Math.min(30, Math.floor(args.tail)) : 8
+        const session = ctx.get('sessions')?.get(record.targetId)
+        const live = ctx.get('agents')?.get(record.targetId)
+        let messages = []
+        if (session !== undefined && typeof session.deriveMessages === 'function') {
+          messages = session.deriveMessages().slice(-count).map(messageLine)
+        }
+        return {
+          name: record.targetName,
+          running: live?.status === 'running',
+          messages,
+        }
+      },
     },
-    output: {
-      schema: {
+    {
+      name: 'peer_reply',
+      description: 'Receiver only. Answer the sender of the incoming message directly, as the conversation this receiver serves. The main conversation is not disturbed. Use it when a short answer is enough.',
+      parameters: {
+        type: 'object',
+        properties: { body: { type: 'string', description: 'The reply text.' } },
+        required: ['body'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: {
+          type: 'object',
+          properties: { sent: { type: 'boolean' }, to: { type: 'string' }, as: { type: 'string' } },
+          required: ['sent', 'to', 'as'],
+          additionalProperties: false,
+        },
+        render: (_args, value) => [{ type: 'text', text: `Replied to ${value.to} as "${value.as}".` }],
+      },
+      timeoutMs: 20_000,
+      isConcurrencySafe: () => false,
+      async execute(args, exec) {
+        const record = recordOf(exec)
+        const body = typeof args?.body === 'string' ? args.body.trim() : ''
+        if (body === '') throw new Error('peer_reply needs a non-empty body')
+        const settings = store.get()
+        const as = nameFor(settings, record.targetId)
+        const text = composeMessage(record.targetId, as, record.targetWorkspace, body)
+        await controller().prompt({
+          requestId: randomUUID(),
+          sessionId: record.senderId,
+          mode: 'queue',
+          content: [{ type: 'text', text }],
+          clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }, exec.signal)
+        record.handled = true
+        return { sent: true, to: record.senderId, as }
+      },
+    },
+    {
+      name: 'peer_handoff',
+      description: 'Receiver only. Deliver a short summary of the incoming message to the conversation this receiver serves. "steer" reaches it at its next step (immediate); "queue" waits for its next turn.',
+      parameters: {
         type: 'object',
         properties: {
-          name: { type: 'string' },
-          running: { type: 'boolean' },
-          messages: { type: 'array', items: { type: 'string' } },
+          summary: { type: 'string', description: 'Two to four sentences: what the sender wants and why it matters.' },
+          delivery: { type: 'string', enum: ['steer', 'queue'], description: 'steer (default) = next step; queue = next turn.' },
         },
-        required: ['name', 'running', 'messages'],
+        required: ['summary'],
         additionalProperties: false,
       },
-      render: (_args, value) => [{
-        type: 'text',
-        text: `Conversation "${value.name}" is ${value.running ? 'running' : 'idle'}. Recent messages:\n${value.messages.join('\n') || '(none)'}`,
-      }],
+      output: {
+        schema: {
+          type: 'object',
+          properties: { delivered: { type: 'boolean' }, delivery: { type: 'string', enum: ['steer', 'queue'] }, to: { type: 'string' } },
+          required: ['delivered', 'delivery', 'to'],
+          additionalProperties: false,
+        },
+        render: (_args, value) => [{ type: 'text', text: `Summary handed to ${value.to} (${value.delivery}).` }],
+      },
+      timeoutMs: 20_000,
+      isConcurrencySafe: () => false,
+      async execute(args, exec) {
+        const record = recordOf(exec)
+        const summary = typeof args?.summary === 'string' ? args.summary.trim() : ''
+        if (summary === '') throw new Error('peer_handoff needs a non-empty summary')
+        const delivery = args?.delivery === 'queue' ? 'queue' : 'steer'
+        const text = `[peer-handoff] from "${record.senderName}" (${record.senderWorkspace}) — summary for this conversation:\n${summary}`
+        await controller().prompt({
+          requestId: randomUUID(),
+          sessionId: record.targetId,
+          mode: delivery,
+          content: [{ type: 'text', text }],
+          clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }, exec.signal)
+        record.handled = true
+        return { delivered: true, delivery, to: record.targetId }
+      },
     },
-    timeoutMs: 10_000,
-    isConcurrencySafe: () => true,
-    async execute(args) {
-      const count = typeof args?.tail === 'number' && args.tail > 0 ? Math.min(30, Math.floor(args.tail)) : 8
-      const session = ctx.get('sessions')?.get(record.targetId)
-      const live = ctx.get('agents')?.get(record.targetId)
-      let messages = []
-      if (session !== undefined && typeof session.deriveMessages === 'function') {
-        messages = session.deriveMessages().slice(-count).map(messageLine)
-      }
-      return {
-        name: record.targetName,
-        running: live?.status === 'running',
-        messages,
-      }
-    },
-  })
-
-  add({
-    name: 'peer_reply',
-    description: 'Answer the sender of the message directly, as the conversation this receiver serves. The main conversation is not disturbed. Use it when a short answer is enough.',
-    parameters: {
-      type: 'object',
-      properties: { body: { type: 'string', description: 'The reply text.' } },
-      required: ['body'],
-      additionalProperties: false,
-    },
-    output: {
-      schema: {
+    {
+      name: 'peer_interrupt',
+      description: 'Receiver only. Cancel the conversation\'s current turn, then deliver a summary of the message. Only when the message contradicts what the conversation is doing right now, so continuing would waste work or go the wrong way.',
+      parameters: {
         type: 'object',
-        properties: { sent: { type: 'boolean' }, to: { type: 'string' } },
-        required: ['sent', 'to'],
+        properties: {
+          reason: { type: 'string', description: 'One line: why continuing would be wrong.' },
+          summary: { type: 'string', description: 'What the conversation must know before it continues.' },
+        },
+        required: ['reason', 'summary'],
         additionalProperties: false,
       },
-      render: () => [{ type: 'text', text: `Replied to ${record.senderName}.` }],
-    },
-    timeoutMs: 20_000,
-    isConcurrencySafe: () => false,
-    async execute(args, exec) {
-      const body = typeof args?.body === 'string' ? args.body.trim() : ''
-      if (body === '') throw new Error('peer_reply needs a non-empty body')
-      const settings = store.get()
-      const text = composeMessage(record.targetId, nameFor(settings, record.targetId), record.targetWorkspace, body)
-      await controller().prompt({
-        requestId: randomUUID(),
-        sessionId: record.senderId,
-        mode: 'queue',
-        content: [{ type: 'text', text }],
-        clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      }, exec.signal)
-      record.handled = true
-      return { sent: true, to: record.senderId }
-    },
-  })
-
-  add({
-    name: 'peer_handoff',
-    description: 'Deliver a short summary of the incoming message to the conversation this receiver serves. "steer" reaches it at its next step (immediate); "queue" waits for its next turn. Use it when the conversation should know but nothing is at risk.',
-    parameters: {
-      type: 'object',
-      properties: {
-        summary: { type: 'string', description: 'Two to four sentences: what the sender wants and why it matters.' },
-        delivery: { type: 'string', enum: ['steer', 'queue'], description: 'steer (default) = next step; queue = next turn.' },
+      output: {
+        schema: {
+          type: 'object',
+          properties: { interrupted: { type: 'boolean' }, delivered: { type: 'boolean' } },
+          required: ['interrupted', 'delivered'],
+          additionalProperties: false,
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: value.interrupted ? 'Cancelled its current turn and delivered the summary.' : 'It was not running; delivered the summary as a new turn.',
+        }],
       },
-      required: ['summary'],
-      additionalProperties: false,
-    },
-    output: {
-      schema: {
-        type: 'object',
-        properties: { delivered: { type: 'boolean' }, delivery: { type: 'string', enum: ['steer', 'queue'] } },
-        required: ['delivered', 'delivery'],
-        additionalProperties: false,
+      timeoutMs: 20_000,
+      isConcurrencySafe: () => false,
+      async execute(args, exec) {
+        const record = recordOf(exec)
+        const reason = typeof args?.reason === 'string' ? args.reason.trim() : ''
+        const summary = typeof args?.summary === 'string' ? args.summary.trim() : ''
+        if (summary === '') throw new Error('peer_interrupt needs a non-empty summary')
+        if (!record.canInterrupt) throw new Error('peer_interrupt is disabled by the user; use peer_handoff instead')
+        const live = ctx.get('agents')?.get(record.targetId)
+        let interrupted = false
+        if (live !== undefined && live.status === 'running' && typeof live.cancel === 'function') {
+          live.cancel({ kind: 'hook', reason: `peer-talk receiver: ${reason || 'the incoming message conflicts with the current work'}` }, { keepInbox: true })
+          interrupted = true
+        }
+        const text = `[peer-interrupt] from "${record.senderName}" (${record.senderWorkspace}) — ${reason === '' ? 'the incoming message conflicts with what you are doing.' : reason}\n\n${summary}`
+        await controller().prompt({
+          requestId: randomUUID(),
+          sessionId: record.targetId,
+          mode: 'queue',
+          content: [{ type: 'text', text }],
+          clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }, exec.signal)
+        record.handled = true
+        return { interrupted, delivered: true }
       },
-      render: () => [{ type: 'text', text: `Summary handed to ${record.targetName}.` }],
     },
-    timeoutMs: 20_000,
-    isConcurrencySafe: () => false,
-    async execute(args, exec) {
-      const summary = typeof args?.summary === 'string' ? args.summary.trim() : ''
-      if (summary === '') throw new Error('peer_handoff needs a non-empty summary')
-      const delivery = args?.delivery === 'queue' ? 'queue' : 'steer'
-      const text = `[peer-handoff] from "${record.senderName}" (${record.senderWorkspace}) — summary for this conversation:\n${summary}`
-      await controller().prompt({
-        requestId: randomUUID(),
-        sessionId: record.targetId,
-        mode: delivery,
-        content: [{ type: 'text', text }],
-        clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      }, exec.signal)
-      record.handled = true
-      return { delivered: true, delivery }
-    },
-  })
-
-  add({
-    name: 'peer_interrupt',
-    description: 'Cancel the conversation\'s current turn, then deliver a summary of the message. Only when the message contradicts what the conversation is doing right now, so that continuing would waste work or go the wrong way.',
-    parameters: {
-      type: 'object',
-      properties: {
-        reason: { type: 'string', description: 'One line: why continuing would be wrong.' },
-        summary: { type: 'string', description: 'What the conversation must know before it continues.' },
-      },
-      required: ['reason', 'summary'],
-      additionalProperties: false,
-    },
-    output: {
-      schema: {
-        type: 'object',
-        properties: { interrupted: { type: 'boolean' }, delivered: { type: 'boolean' } },
-        required: ['interrupted', 'delivered'],
-        additionalProperties: false,
-      },
-      render: () => [{ type: 'text', text: `Interrupted ${record.targetName} and handed it the summary.` }],
-    },
-    timeoutMs: 20_000,
-    isConcurrencySafe: () => false,
-    async execute(args, exec) {
-      const reason = typeof args?.reason === 'string' ? args.reason.trim() : ''
-      const summary = typeof args?.summary === 'string' ? args.summary.trim() : ''
-      if (summary === '') throw new Error('peer_interrupt needs a non-empty summary')
-      if (!record.canInterrupt) {
-        throw new Error('peer_interrupt is disabled by the user; use peer_handoff instead')
-      }
-      const live = ctx.get('agents')?.get(record.targetId)
-      let interrupted = false
-      if (live !== undefined && live.status === 'running' && typeof live.cancel === 'function') {
-        live.cancel({ kind: 'hook', reason: `peer-talk receiver: ${reason || 'the incoming message conflicts with the current work'}` }, { keepInbox: true })
-        interrupted = true
-      }
-      const text = `[peer-interrupt] from "${record.senderName}" (${record.senderWorkspace}) — ${reason === '' ? 'the incoming message conflicts with what you are doing.' : reason}\n\n${summary}`
-      await controller().prompt({
-        requestId: randomUUID(),
-        sessionId: record.targetId,
-        mode: 'queue',
-        content: [{ type: 'text', text }],
-        clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      }, exec.signal)
-      record.handled = true
-      return { interrupted, delivered: true }
-    },
-  })
+  ]
 }
 
 /**
@@ -1128,16 +1142,6 @@ async function startReceiver(deps, input) {
   }
   activation.result.then(settle, settle)
 
-  const child = ctx.get('agents')?.get(activation.childId)
-  if (child !== undefined && child.ctx !== undefined) {
-    registerReceiverTools(child.ctx, record, { ctx, store })
-  } else {
-    // The child may not be published yet; retry once on the next tick.
-    setTimeout(() => {
-      const late = ctx.get('agents')?.get(activation.childId)
-      if (late !== undefined && late.ctx !== undefined) registerReceiverTools(late.ctx, record, { ctx, store })
-    }, 0)
-  }
   return { childId: activation.childId }
 }
 
@@ -1156,6 +1160,12 @@ export function apply(ctx, config) {
   const receivers = new Map()
   /** Receiver count per target session, so one conversation cannot be flooded. */
   const receiversByTarget = new Map()
+
+  // Receiver tools are global because a child agent has no scoped context yet
+  // when its first request is assembled; each call claims its record by agent.
+  for (const definition of receiverToolDefinitions(ctx, store, receivers)) {
+    registerTool(ctx, log, definition)
+  }
 
   /** The caller's workspace node, used to resolve capabilities. */
   const nodeFor = (sessionId, workspaceId) => ({ sessionId, workspaceId })
