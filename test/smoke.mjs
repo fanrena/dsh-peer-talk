@@ -38,6 +38,7 @@ const BASE = {
   grants: {},
   names: {},
   humanName: '鹿',
+  delivery: 'steer',
   defaultModel: null,
   maxSendsPerMinute: 8,
   maxMessageChars: 4000,
@@ -45,6 +46,8 @@ const BASE = {
 
 check('capability vocabulary', CAPABILITIES, ['create', 'cross', 'forum'])
 check('mode vocabulary', MODES, ['allow', 'ask', 'deny'])
+check('delivery: queue is kept', resolveSettings({ delivery: 'queue' }).delivery, 'queue')
+check('delivery: unknown falls back to steer', resolveSettings({ delivery: 'now' }).delivery, 'steer')
 check('defaults', resolveSettings({}), BASE)
 
 check('defaults are overridable', resolveSettings({ defaults: { create: 'deny' } }).defaults,

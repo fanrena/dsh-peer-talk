@@ -48,6 +48,7 @@ const DEFAULTS = {
   grants: {},
   names: {},
   humanName: '鹿',
+  delivery: 'steer',
   defaultModel: null,
   maxSendsPerMinute: 8,
   maxMessageChars: 4000,
@@ -238,6 +239,7 @@ export function resolveSettings(raw, seed = {}) {
     grants,
     names: nameMap(source.names === undefined ? seedSource.names : source.names),
     humanName: humanNameOf(source.humanName ?? seedSource.humanName),
+    delivery: oneOf(source.delivery ?? seedSource.delivery, ['steer', 'queue'], DEFAULTS.delivery),
     defaultModel: source.defaultModel === undefined
       ? modelRef(seedSource.defaultModel)
       : modelRef(source.defaultModel),
@@ -946,7 +948,7 @@ export function apply(ctx, config) {
         mode: {
           type: 'string',
           enum: ['queue', 'steer'],
-          description: 'queue (default) delivers it as the next turn; steer folds it into the receiver\'s current step, which is only useful when that conversation is mid-work.',
+          description: 'steer (default) drops it into the conversation at its next step, so a busy agent reacts at once without waiting for its turn to end; queue waits for its next turn.',
         },
       },
       required: ['session', 'message'],
@@ -981,14 +983,20 @@ export function apply(ctx, config) {
       if (target === '') throw new Error('peer_send needs a target session id from peer_list')
       if (target === selfId) throw new Error('peer_send cannot address your own conversation')
       if (message === '') throw new Error('peer_send needs a non-empty message')
-      const mode = args?.mode === 'steer' ? 'steer' : 'queue'
-
       const view = await peerView(ctx, selfId, exec.signal, 'all', id => nameFor(store.get(), id))
       const peer = view.peers.find(candidate => candidate.session === target)
       if (peer === undefined) {
         throw new Error(`peer_send: "${target}" is not a conversation this host can address (check peer_list; sub-agent and blank sessions are not addressable)`)
       }
       const settings = store.get()
+      // Delivery: an explicit mode wins, otherwise the deployment setting.
+      // `steer` reaches a running conversation at its next step boundary.
+      const mode = args?.mode === 'queue'
+        ? 'queue'
+        : args?.mode === 'steer'
+          ? 'steer'
+          : settings.delivery === 'queue' ? 'queue' : 'steer'
+
       if (message.length > settings.maxMessageChars) {
         throw new Error(`peer_send: the message is ${message.length} characters; the user's limit is ${settings.maxMessageChars}`)
       }

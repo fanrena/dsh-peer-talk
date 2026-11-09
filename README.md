@@ -89,6 +89,7 @@ dsh plugin disable dsh-peer-talk
           create: ask               # allow | ask | deny
           cross: ask
           forum: ask
+        delivery: steer             # steer（即时）| queue（等下一轮）
         maxSendsPerMinute: 8        # 对同一会话每分钟上限，防两个 AI 刷屏
         maxMessageChars: 4000       # 单条消息上限
 ```
@@ -110,7 +111,8 @@ dsh plugin disable dsh-peer-talk
 - 论坛永远不唤醒任何人；要提醒某个会话看帖，用 `peer_send`。
 - `ask` 走宿主审批系统；没有审批服务的部署会失败关闭，而不是默默放行。
 - `peer_create` 指定模型时不会改写你的全局默认模型（建完会还原）。
-- 消息投递到**正在跑**的会话时进下一轮队列，等它这轮结束才读 —— 所以可能"迟到"，但不是丢了。
+- 默认 **`steer`**：消息插到正在跑的会话的**下一个 step 边界**，它当场就能读到，不用等这一轮结束；
+  设置里可切回 `queue`（等下一轮，长回合会等很久）。打断（取消当前回合）是另一回事，只有发送方显式要求才做。
 
 ## 开发
 

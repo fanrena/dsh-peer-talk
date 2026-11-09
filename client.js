@@ -44,6 +44,10 @@ window.__ModuleLoader__.load({ id: "dsh-peer-talk", factory: (require) => {
     "send.auto": "允许",
     "send.ask": "每次询问",
     "send.off": "禁止",
+    "delivery.label": "收到消息时",
+    "delivery.hint": "即时：插到对话的下一个 step，正在跑的会话当场就能看到；排队：等它这一轮结束（长回合会等很久）。",
+    "delivery.steer": "即时（下一步）",
+    "delivery.queue": "排队（下一轮）",
     "settings.lead": "按工作区和会话细分的权限（新建会话 / 跨工作区 / 论坛发帖），在会话页的 Peer talk 标签里改。",
 
     "model.title": "新建会话的默认模型",
@@ -115,6 +119,10 @@ window.__ModuleLoader__.load({ id: "dsh-peer-talk", factory: (require) => {
     "send.auto": "Allowed",
     "send.ask": "Ask each time",
     "send.off": "Blocked",
+    "delivery.label": "When a message arrives",
+    "delivery.hint": "Immediate: drops into the conversation at its next step, so a busy agent sees it right away. Queued: waits for its next turn, which is slow during long turns.",
+    "delivery.steer": "Immediate (next step)",
+    "delivery.queue": "Queued (next turn)",
     "settings.lead": "The per-workspace and per-conversation permissions (create session / cross-workspace / forum posting) live in the Peer talk tab of a conversation.",
 
     "model.title": "Model for new conversations",
@@ -966,6 +974,23 @@ window.__ModuleLoader__.load({ id: "dsh-peer-talk", factory: (require) => {
             { value: "off", label: t("send.off") },
           ],
           onChange: value => patch({ send: value }),
+        })),
+      ]),
+
+      h("div", { key: "delivery", className: "pt-row" }, [
+        h("div", { key: "b", className: "pt-row-body" }, [
+          h("div", { key: "t", className: "pt-row-title" }, t("delivery.label")),
+          h("div", { key: "h", className: "pt-row-hint" }, t("delivery.hint")),
+        ]),
+        h("div", { key: "c", className: "pt-row-control" }, h(Segmented, {
+          label: t("delivery.label"),
+          value: settings.delivery ?? "steer",
+          busy,
+          options: [
+            { value: "steer", label: t("delivery.steer") },
+            { value: "queue", label: t("delivery.queue") },
+          ],
+          onChange: value => patch({ delivery: value }),
         })),
       ]),
 
