@@ -44,10 +44,6 @@ window.__ModuleLoader__.load({ id: "dsh-peer-talk", factory: (require) => {
     "send.auto": "允许",
     "send.ask": "每次询问",
     "send.off": "禁止",
-    "receiver.label": "收到消息时怎么处理",
-    "receiver.hint": "值守：给对方派一个值守子代理，当场决定是回复、转达还是打断主代理；排队：塞进对方下一轮（旧行为，长回合会等很久）。",
-    "receiver.handler": "值守（即时）",
-    "receiver.queue": "排队（下一轮）",
     "settings.lead": "按工作区和会话细分的权限（新建会话 / 跨工作区 / 论坛发帖），在会话页的 Peer talk 标签里改。",
 
     "model.title": "新建会话的默认模型",
@@ -119,10 +115,6 @@ window.__ModuleLoader__.load({ id: "dsh-peer-talk", factory: (require) => {
     "send.auto": "Allowed",
     "send.ask": "Ask each time",
     "send.off": "Blocked",
-    "receiver.label": "When a message arrives",
-    "receiver.hint": "Handled: spawn a receiver subagent that decides on the spot whether to reply, forward, or interrupt the main conversation. Queued: drop it into the conversation's next turn (the old behavior — slow for long turns).",
-    "receiver.handler": "Handled (immediate)",
-    "receiver.queue": "Queued (next turn)",
     "settings.lead": "The per-workspace and per-conversation permissions (create session / cross-workspace / forum posting) live in the Peer talk tab of a conversation.",
 
     "model.title": "Model for new conversations",
@@ -974,23 +966,6 @@ window.__ModuleLoader__.load({ id: "dsh-peer-talk", factory: (require) => {
             { value: "off", label: t("send.off") },
           ],
           onChange: value => patch({ send: value }),
-        })),
-      ]),
-
-      h("div", { key: "receiver", className: "pt-row" }, [
-        h("div", { key: "b", className: "pt-row-body" }, [
-          h("div", { key: "t", className: "pt-row-title" }, t("receiver.label")),
-          h("div", { key: "h", className: "pt-row-hint" }, t("receiver.hint")),
-        ]),
-        h("div", { key: "c", className: "pt-row-control" }, h(Segmented, {
-          label: t("receiver.label"),
-          value: settings.receiver?.mode ?? "handler",
-          busy,
-          options: [
-            { value: "handler", label: t("receiver.handler") },
-            { value: "queue", label: t("receiver.queue") },
-          ],
-          onChange: value => patch({ receiver: { mode: value } }),
         })),
       ]),
 
